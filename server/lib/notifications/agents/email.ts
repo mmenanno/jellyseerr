@@ -3,6 +3,7 @@ import { MediaType } from '@server/constants/media';
 import { getRepository } from '@server/datasource';
 import { User } from '@server/entity/User';
 import PreparedEmail from '@server/lib/email';
+import { TemplateEngine } from '@server/lib/notifications/templateEngine';
 import type { NotificationAgentEmail } from '@server/lib/settings';
 import { getSettings, NotificationAgentKey } from '@server/lib/settings';
 import logger from '@server/logger';
@@ -53,13 +54,15 @@ class EmailAgent
     const { embedPoster } = settings.notifications.agents.email;
 
     if (type === Notification.TEST_NOTIFICATION) {
+      const body = TemplateEngine.render(payload.message ?? '', payload, type);
+
       return {
         template: path.join(__dirname, '../../../templates/email/test-email'),
         message: {
           to: recipientEmail,
         },
         locals: {
-          body: payload.message,
+          body,
           applicationUrl,
           applicationTitle,
           recipientName,
@@ -76,47 +79,55 @@ class EmailAgent
     const is4k = payload.request?.is4k;
 
     if (payload.request) {
-      let body = '';
+      let bodyTemplate = '';
 
       switch (type) {
         case Notification.MEDIA_PENDING:
-          body = `A new request for the following ${mediaType} ${
+          bodyTemplate = `A new request for the following ${mediaType} ${
             is4k ? 'in 4K ' : ''
           }is pending approval:`;
           break;
         case Notification.MEDIA_AUTO_REQUESTED:
-          body = `A new request for the following ${mediaType} ${
+          bodyTemplate = `A new request for the following ${mediaType} ${
             is4k ? 'in 4K ' : ''
           }was automatically submitted:`;
           break;
         case Notification.MEDIA_APPROVED:
-          body = `Your request for the following ${mediaType} ${
+          bodyTemplate = `Your request for the following ${mediaType} ${
             is4k ? 'in 4K ' : ''
           }has been approved:`;
           break;
         case Notification.MEDIA_AUTO_APPROVED:
-          body = `A new request for the following ${mediaType} ${
+          bodyTemplate = `A new request for the following ${mediaType} ${
             is4k ? 'in 4K ' : ''
           }has been automatically approved:`;
           break;
         case Notification.MEDIA_AVAILABLE:
-          body = `Your request for the following ${mediaType} ${
+          bodyTemplate = `Your request for the following ${mediaType} ${
             is4k ? 'in 4K ' : ''
           }is now available:`;
           break;
         case Notification.MEDIA_DECLINED:
-          body = `Your request for the following ${mediaType} ${
+          bodyTemplate = `Your request for the following ${mediaType} ${
             is4k ? 'in 4K ' : ''
           }was declined:`;
           break;
         case Notification.MEDIA_FAILED:
-          body = `A request for the following ${mediaType} ${
+          bodyTemplate = `A request for the following ${mediaType} ${
             is4k ? 'in 4K ' : ''
           }failed to be added to ${
             payload.media?.mediaType === MediaType.MOVIE ? 'Radarr' : 'Sonarr'
           }:`;
           break;
       }
+
+      const body = TemplateEngine.render(bodyTemplate, payload, type);
+      const mediaName = TemplateEngine.render(`{{subject}}`, payload, type);
+      const requestedBy = TemplateEngine.render(
+        `{{requestedBy_username}}`,
+        payload,
+        type
+      );
 
       return {
         template: path.join(
@@ -129,11 +140,11 @@ class EmailAgent
         locals: {
           event: payload.event,
           body,
-          mediaName: payload.subject,
+          mediaName,
           mediaExtra: payload.extra ?? [],
           imageUrl: embedPoster ? payload.image : undefined,
           timestamp: new Date().toTimeString(),
-          requestedBy: payload.request.requestedBy.displayName,
+          requestedBy,
           actionUrl: applicationUrl
             ? `${applicationUrl}/${payload.media?.mediaType}/${payload.media?.tmdbId}`
             : undefined,
@@ -149,22 +160,33 @@ class EmailAgent
           ? `${IssueTypeName[payload.issue.issueType].toLowerCase()} issue`
           : 'issue';
 
-      let body = '';
+      let bodyTemplate = '';
 
       switch (type) {
         case Notification.ISSUE_CREATED:
-          body = `A new ${issueType} has been reported by ${payload.issue.createdBy.displayName} for the ${mediaType} ${payload.subject}:`;
+          bodyTemplate = `A new ${issueType} has been reported by {{reportedBy_username}} for the ${mediaType} {{subject}}:`;
           break;
         case Notification.ISSUE_COMMENT:
-          body = `${payload.comment?.user.displayName} commented on the ${issueType} for the ${mediaType} ${payload.subject}:`;
+          bodyTemplate = `{{commentedBy_username}} commented on the ${issueType} for the ${mediaType} {{subject}}:`;
           break;
         case Notification.ISSUE_RESOLVED:
-          body = `The ${issueType} for the ${mediaType} ${payload.subject} was marked as resolved by ${payload.issue.modifiedBy?.displayName}!`;
+          bodyTemplate = `The ${issueType} for the ${mediaType} {{subject}} was marked as resolved by ${payload.issue.modifiedBy?.displayName}!`;
           break;
         case Notification.ISSUE_REOPENED:
-          body = `The ${issueType} for the ${mediaType} ${payload.subject} was reopened by ${payload.issue.modifiedBy?.displayName}.`;
+          bodyTemplate = `The ${issueType} for the ${mediaType} {{subject}} was reopened by ${payload.issue.modifiedBy?.displayName}.`;
           break;
       }
+
+      const body = TemplateEngine.render(bodyTemplate, payload, type);
+      const issueDescription = TemplateEngine.render(
+        payload.message ?? '',
+        payload,
+        type
+      );
+      const issueComment = payload.comment?.message
+        ? TemplateEngine.render(payload.comment.message, payload, type)
+        : undefined;
+      const mediaName = TemplateEngine.render(`{{subject}}`, payload, type);
 
       return {
         template: path.join(__dirname, '../../../templates/email/media-issue'),
@@ -174,9 +196,9 @@ class EmailAgent
         locals: {
           event: payload.event,
           body,
-          issueDescription: payload.message,
-          issueComment: payload.comment?.message,
-          mediaName: payload.subject,
+          issueDescription,
+          issueComment,
+          mediaName,
           extra: payload.extra ?? [],
           imageUrl: embedPoster ? payload.image : undefined,
           timestamp: new Date().toTimeString(),

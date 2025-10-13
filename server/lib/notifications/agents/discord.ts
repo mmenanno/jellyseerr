@@ -1,6 +1,6 @@
-import { IssueStatus, IssueTypeName } from '@server/constants/issue';
 import { getRepository } from '@server/datasource';
 import { User } from '@server/entity/User';
+import { TemplateEngine } from '@server/lib/notifications/templateEngine';
 import type { NotificationAgentDiscord } from '@server/lib/settings';
 import { getSettings, NotificationAgentKey } from '@server/lib/settings';
 import logger from '@server/logger';
@@ -119,9 +119,15 @@ class DiscordAgent
     const fields: Field[] = [];
 
     if (payload.request) {
+      const requestedByValue = TemplateEngine.render(
+        `{{requestedBy_username}}`,
+        payload,
+        type
+      );
+
       fields.push({
         name: 'Requested By',
-        value: payload.request.requestedBy.displayName,
+        value: requestedByValue,
         inline: true,
       });
 
@@ -158,27 +164,53 @@ class DiscordAgent
         });
       }
     } else if (payload.comment) {
+      const commentName = TemplateEngine.render(
+        `Comment from {{commentedBy_username}}`,
+        payload,
+        type
+      );
+      const commentValue = TemplateEngine.render(
+        `{{comment_message}}`,
+        payload,
+        type
+      );
+
       fields.push({
-        name: `Comment from ${payload.comment.user.displayName}`,
-        value: payload.comment.message,
+        name: commentName,
+        value: commentValue,
         inline: false,
       });
     } else if (payload.issue) {
+      const reportedByValue = TemplateEngine.render(
+        `{{reportedBy_username}}`,
+        payload,
+        type
+      );
+      const issueTypeValue = TemplateEngine.render(
+        `{{issue_type}}`,
+        payload,
+        type
+      );
+      const issueStatusValue = TemplateEngine.render(
+        `{{issue_status}}`,
+        payload,
+        type
+      );
+
       fields.push(
         {
           name: 'Reported By',
-          value: payload.issue.createdBy.displayName,
+          value: reportedByValue,
           inline: true,
         },
         {
           name: 'Issue Type',
-          value: IssueTypeName[payload.issue.issueType],
+          value: issueTypeValue,
           inline: true,
         },
         {
           name: 'Issue Status',
-          value:
-            payload.issue.status === IssueStatus.OPEN ? 'Open' : 'Resolved',
+          value: issueStatusValue,
           inline: true,
         }
       );
@@ -213,15 +245,23 @@ class DiscordAgent
         : undefined
       : undefined;
 
+    const title = TemplateEngine.render(`{{subject}}`, payload, type);
+    const description = payload.message
+      ? TemplateEngine.render(`{{message}}`, payload, type)
+      : undefined;
+    const authorName = payload.event
+      ? TemplateEngine.render(`{{event}}`, payload, type)
+      : undefined;
+
     return {
-      title: payload.subject,
+      title,
       url,
-      description: payload.message,
+      description,
       color,
       timestamp: new Date().toISOString(),
-      author: payload.event
+      author: authorName
         ? {
-            name: payload.event,
+            name: authorName,
           }
         : undefined,
       fields,

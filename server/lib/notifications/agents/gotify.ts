@@ -1,4 +1,4 @@
-import { IssueStatus, IssueTypeName } from '@server/constants/issue';
+import { TemplateEngine } from '@server/lib/notifications/templateEngine';
 import type { NotificationAgentGotify } from '@server/lib/settings';
 import { getSettings } from '@server/lib/settings';
 import logger from '@server/logger';
@@ -51,14 +51,14 @@ class GotifyAgent
     const settings = this.getSettings();
     const priority = settings.options.priority ?? 1;
 
-    const title = payload.event
-      ? `${payload.event} - ${payload.subject}`
-      : payload.subject;
+    const titleTemplate = payload.event
+      ? `{{event}} - {{subject}}`
+      : `{{subject}}`;
 
-    let message = payload.message ? `${payload.message}  \n\n` : '';
+    let messageTemplate = payload.message ? `{{message}}  \n\n` : '';
 
     if (payload.request) {
-      message += `\n**Requested By:** ${payload.request.requestedBy.displayName}  `;
+      messageTemplate += `\n**Requested By:** {{requestedBy_username}}  `;
 
       let status = '';
       switch (type) {
@@ -81,30 +81,29 @@ class GotifyAgent
       }
 
       if (status) {
-        message += `\n**Request Status:** ${status}  `;
+        messageTemplate += `\n**Request Status:** ${status}  `;
       }
     } else if (payload.comment) {
-      message += `\nComment from ${payload.comment.user.displayName}:\n${payload.comment.message}  `;
+      messageTemplate += `\nComment from {{commentedBy_username}}:\n{{comment_message}}  `;
     } else if (payload.issue) {
-      message += `\n\n**Reported By:** ${payload.issue.createdBy.displayName}  `;
-      message += `\n**Issue Type:** ${
-        IssueTypeName[payload.issue.issueType]
-      }  `;
-      message += `\n**Issue Status:** ${
-        payload.issue.status === IssueStatus.OPEN ? 'Open' : 'Resolved'
-      }  `;
+      messageTemplate += `\n\n**Reported By:** {{reportedBy_username}}  `;
+      messageTemplate += `\n**Issue Type:** {{issue_type}}  `;
+      messageTemplate += `\n**Issue Status:** {{issue_status}}  `;
     }
 
     for (const extra of payload.extra ?? []) {
-      message += `\n\n**${extra.name}**\n${extra.value}  `;
+      messageTemplate += `\n\n**${extra.name}**\n${extra.value}  `;
     }
 
     if (applicationUrl && payload.media) {
       const actionUrl = `${applicationUrl}/${payload.media.mediaType}/${payload.media.tmdbId}`;
       const displayUrl =
         actionUrl.length > 40 ? `${actionUrl.slice(0, 41)}...` : actionUrl;
-      message += `\n\n**Open in ${applicationTitle}:** [${displayUrl}](${actionUrl})  `;
+      messageTemplate += `\n\n**Open in ${applicationTitle}:** [${displayUrl}](${actionUrl})  `;
     }
+
+    const title = TemplateEngine.render(titleTemplate, payload, type);
+    const message = TemplateEngine.render(messageTemplate, payload, type);
 
     return {
       extras: {

@@ -1,7 +1,7 @@
-import { IssueStatus, IssueTypeName } from '@server/constants/issue';
 import { MediaStatus } from '@server/constants/media';
 import { getRepository } from '@server/datasource';
 import { User } from '@server/entity/User';
+import { TemplateEngine } from '@server/lib/notifications/templateEngine';
 import type { NotificationAgentPushbullet } from '@server/lib/settings';
 import { getSettings, NotificationAgentKey } from '@server/lib/settings';
 import logger from '@server/logger';
@@ -43,13 +43,14 @@ class PushbulletAgent
     type: Notification,
     payload: NotificationPayload
   ): PushbulletPayload {
-    const title = payload.event
-      ? `${payload.event} - ${payload.subject}`
-      : payload.subject;
-    let body = payload.message ?? '';
+    const titleTemplate = payload.event
+      ? `{{event}} - {{subject}}`
+      : `{{subject}}`;
+
+    let bodyTemplate = `{{message}}`;
 
     if (payload.request) {
-      body += `\n\nRequested By: ${payload.request.requestedBy.displayName}`;
+      bodyTemplate += `\n\nRequested By: {{requestedBy_username}}`;
 
       let status = '';
       switch (type) {
@@ -78,21 +79,22 @@ class PushbulletAgent
       }
 
       if (status) {
-        body += `\nRequest Status: ${status}`;
+        bodyTemplate += `\nRequest Status: ${status}`;
       }
     } else if (payload.comment) {
-      body += `\n\nComment from ${payload.comment.user.displayName}:\n${payload.comment.message}`;
+      bodyTemplate += `\n\nComment from {{commentedBy_username}}:\n{{comment_message}}`;
     } else if (payload.issue) {
-      body += `\n\nReported By: ${payload.issue.createdBy.displayName}`;
-      body += `\nIssue Type: ${IssueTypeName[payload.issue.issueType]}`;
-      body += `\nIssue Status: ${
-        payload.issue.status === IssueStatus.OPEN ? 'Open' : 'Resolved'
-      }`;
+      bodyTemplate += `\n\nReported By: {{reportedBy_username}}`;
+      bodyTemplate += `\nIssue Type: {{issue_type}}`;
+      bodyTemplate += `\nIssue Status: {{issue_status}}`;
     }
 
     for (const extra of payload.extra ?? []) {
-      body += `\n${extra.name}: ${extra.value}`;
+      bodyTemplate += `\n${extra.name}: ${extra.value}`;
     }
+
+    const title = TemplateEngine.render(titleTemplate, payload, type);
+    const body = TemplateEngine.render(bodyTemplate, payload, type);
 
     return {
       type: 'note',

@@ -1,4 +1,4 @@
-import { IssueStatus, IssueTypeName } from '@server/constants/issue';
+import { TemplateEngine } from '@server/lib/notifications/templateEngine';
 import type { NotificationAgentNtfy } from '@server/lib/settings';
 import { getSettings } from '@server/lib/settings';
 import logger from '@server/logger';
@@ -29,13 +29,14 @@ class NtfyAgent
     const topic = this.getSettings().options.topic;
     const priority = 3;
 
-    const title = payload.event
-      ? `${payload.event} - ${payload.subject}`
-      : payload.subject;
-    let message = payload.message ?? '';
+    const titleTemplate = payload.event
+      ? `{{event}} - {{subject}}`
+      : `{{subject}}`;
+
+    let messageTemplate = `{{message}}`;
 
     if (payload.request) {
-      message += `\n\nRequested By: ${payload.request.requestedBy.displayName}`;
+      messageTemplate += `\n\nRequested By: {{requestedBy_username}}`;
 
       let status = '';
       switch (type) {
@@ -58,21 +59,22 @@ class NtfyAgent
       }
 
       if (status) {
-        message += `\nRequest Status: ${status}`;
+        messageTemplate += `\nRequest Status: ${status}`;
       }
     } else if (payload.comment) {
-      message += `\nComment from ${payload.comment.user.displayName}:\n${payload.comment.message}`;
+      messageTemplate += `\nComment from {{commentedBy_username}}:\n{{comment_message}}`;
     } else if (payload.issue) {
-      message += `\n\nReported By: ${payload.issue.createdBy.displayName}`;
-      message += `\nIssue Type: ${IssueTypeName[payload.issue.issueType]}`;
-      message += `\nIssue Status: ${
-        payload.issue.status === IssueStatus.OPEN ? 'Open' : 'Resolved'
-      }`;
+      messageTemplate += `\n\nReported By: {{reportedBy_username}}`;
+      messageTemplate += `\nIssue Type: {{issue_type}}`;
+      messageTemplate += `\nIssue Status: {{issue_status}}`;
     }
 
     for (const extra of payload.extra ?? []) {
-      message += `\n\n**${extra.name}**\n${extra.value}`;
+      messageTemplate += `\n\n**${extra.name}**\n${extra.value}`;
     }
+
+    const title = TemplateEngine.render(titleTemplate, payload, type);
+    const message = TemplateEngine.render(messageTemplate, payload, type);
 
     const attach = embedPoster ? payload.image : undefined;
 

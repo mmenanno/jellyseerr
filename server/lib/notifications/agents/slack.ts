@@ -1,4 +1,4 @@
-import { IssueStatus, IssueTypeName } from '@server/constants/issue';
+import { TemplateEngine } from '@server/lib/notifications/templateEngine';
 import type { NotificationAgentSlack } from '@server/lib/settings';
 import { getSettings } from '@server/lib/settings';
 import logger from '@server/logger';
@@ -70,9 +70,15 @@ class SlackAgent
     const fields: EmbedField[] = [];
 
     if (payload.request) {
+      const requestedByText = TemplateEngine.render(
+        `*Requested By*\n{{requestedBy_username}}`,
+        payload,
+        type
+      );
+
       fields.push({
         type: 'mrkdwn',
-        text: `*Requested By*\n${payload.request.requestedBy.displayName}`,
+        text: requestedByText,
       });
 
       let status = '';
@@ -102,25 +108,45 @@ class SlackAgent
         });
       }
     } else if (payload.comment) {
+      const commentText = TemplateEngine.render(
+        `*Comment from {{commentedBy_username}}*\n{{comment_message}}`,
+        payload,
+        type
+      );
+
       fields.push({
         type: 'mrkdwn',
-        text: `*Comment from ${payload.comment.user.displayName}*\n${payload.comment.message}`,
+        text: commentText,
       });
     } else if (payload.issue) {
+      const reportedByText = TemplateEngine.render(
+        `*Reported By*\n{{reportedBy_username}}`,
+        payload,
+        type
+      );
+      const issueTypeText = TemplateEngine.render(
+        `*Issue Type*\n{{issue_type}}`,
+        payload,
+        type
+      );
+      const issueStatusText = TemplateEngine.render(
+        `*Issue Status*\n{{issue_status}}`,
+        payload,
+        type
+      );
+
       fields.push(
         {
           type: 'mrkdwn',
-          text: `*Reported By*\n${payload.issue.createdBy.displayName}`,
+          text: reportedByText,
         },
         {
           type: 'mrkdwn',
-          text: `*Issue Type*\n${IssueTypeName[payload.issue.issueType]}`,
+          text: issueTypeText,
         },
         {
           type: 'mrkdwn',
-          text: `*Issue Status*\n${
-            payload.issue.status === IssueStatus.OPEN ? 'Open' : 'Resolved'
-          }`,
+          text: issueStatusText,
         }
       );
     }
@@ -135,38 +161,44 @@ class SlackAgent
     const blocks: EmbedBlock[] = [];
 
     if (payload.event) {
+      const eventText = TemplateEngine.render(`*{{event}}*`, payload, type);
+
       blocks.push({
         type: 'context',
         elements: [
           {
             type: 'mrkdwn',
-            text: `*${payload.event}*`,
+            text: eventText,
           },
         ],
       });
     }
 
+    const subjectText = TemplateEngine.render(`{{subject}}`, payload, type);
+
     blocks.push({
       type: 'header',
       text: {
         type: 'plain_text',
-        text: payload.subject,
+        text: subjectText,
       },
     });
 
     if (payload.message) {
+      const messageText = TemplateEngine.render(`{{message}}`, payload, type);
+
       blocks.push({
         type: 'section',
         text: {
           type: 'mrkdwn',
-          text: payload.message,
+          text: messageText,
         },
         accessory:
           embedPoster && payload.image
             ? {
                 type: 'image',
                 image_url: payload.image,
-                alt_text: payload.subject,
+                alt_text: subjectText,
               }
             : undefined,
       });
@@ -206,8 +238,14 @@ class SlackAgent
       });
     }
 
+    const text = TemplateEngine.render(
+      payload.event ? `{{event}}` : `{{subject}}`,
+      payload,
+      type
+    );
+
     return {
-      text: payload.event ?? payload.subject,
+      text,
       blocks,
     };
   }

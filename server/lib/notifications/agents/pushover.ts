@@ -1,7 +1,7 @@
-import { IssueStatus, IssueTypeName } from '@server/constants/issue';
 import { MediaStatus } from '@server/constants/media';
 import { getRepository } from '@server/datasource';
 import { User } from '@server/entity/User';
+import { TemplateEngine } from '@server/lib/notifications/templateEngine';
 import type { NotificationAgentPushover } from '@server/lib/settings';
 import { getSettings, NotificationAgentKey } from '@server/lib/settings';
 import logger from '@server/logger';
@@ -82,16 +82,18 @@ class PushoverAgent
     const { applicationUrl, applicationTitle } = settings.main;
     const { embedPoster } = settings.notifications.agents.pushover;
 
-    const title = payload.event ?? payload.subject;
-    let message = payload.event ? `<b>${payload.subject}</b>` : '';
+    const titleTemplate = payload.event ? `{{event}}` : `{{subject}}`;
+    let messageTemplate = payload.event ? `<b>{{subject}}</b>` : '';
     let priority = 0;
 
     if (payload.message) {
-      message += `<small>${message ? '\n' : ''}${payload.message}</small>`;
+      messageTemplate += `<small>${
+        messageTemplate ? '\n' : ''
+      }{{message}}</small>`;
     }
 
     if (payload.request) {
-      message += `<small>\n\n<b>Requested By:</b> ${payload.request.requestedBy.displayName}</small>`;
+      messageTemplate += `<small>\n\n<b>Requested By:</b> {{requestedBy_username}}</small>`;
 
       let status = '';
       switch (type) {
@@ -122,18 +124,14 @@ class PushoverAgent
       }
 
       if (status) {
-        message += `<small>\n<b>Request Status:</b> ${status}</small>`;
+        messageTemplate += `<small>\n<b>Request Status:</b> ${status}</small>`;
       }
     } else if (payload.comment) {
-      message += `<small>\n\n<b>Comment from ${payload.comment.user.displayName}:</b> ${payload.comment.message}</small>`;
+      messageTemplate += `<small>\n\n<b>Comment from {{commentedBy_username}}:</b> {{comment_message}}</small>`;
     } else if (payload.issue) {
-      message += `<small>\n\n<b>Reported By:</b> ${payload.issue.createdBy.displayName}</small>`;
-      message += `<small>\n<b>Issue Type:</b> ${
-        IssueTypeName[payload.issue.issueType]
-      }</small>`;
-      message += `<small>\n<b>Issue Status:</b> ${
-        payload.issue.status === IssueStatus.OPEN ? 'Open' : 'Resolved'
-      }</small>`;
+      messageTemplate += `<small>\n\n<b>Reported By:</b> {{reportedBy_username}}</small>`;
+      messageTemplate += `<small>\n<b>Issue Type:</b> {{issue_type}}</small>`;
+      messageTemplate += `<small>\n<b>Issue Status:</b> {{issue_status}}</small>`;
 
       if (type === Notification.ISSUE_CREATED) {
         priority = 1;
@@ -141,8 +139,11 @@ class PushoverAgent
     }
 
     for (const extra of payload.extra ?? []) {
-      message += `<small>\n<b>${extra.name}:</b> ${extra.value}</small>`;
+      messageTemplate += `<small>\n<b>${extra.name}:</b> ${extra.value}</small>`;
     }
+
+    const title = TemplateEngine.render(titleTemplate, payload, type);
+    const message = TemplateEngine.render(messageTemplate, payload, type);
 
     const url = applicationUrl
       ? payload.issue
